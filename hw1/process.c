@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include "parse.h"
+#include <string.h>
 
 /**
  *  Executes the process p.
@@ -14,6 +16,26 @@
  */
 void launch_process(process *p) {
     /** TODO **/
+	
+   if(execv(p->argv[0],p->argv) == -1){
+	char path_way[1024] = "";
+	strcat(path_way,getenv("PATH"));
+	tok_t *direc = getToks(path_way);
+	int u = 0;
+		while(direc[u] !=NULL){
+			char filepath[1024] = "";
+			strcat(filepath,direc[u]);
+			 strcat(filepath,"/");
+			  strcat(filepath,p->argv[0]);
+		if(execv(filepath, p->argv) != -1){
+		continue;
+		}
+	u++;
+	}
+
+	printf("Could not execute '%s' : No such file or directory\n",p->argv[0]);
+	exit(1);		
+	}
 }
 
 /**
@@ -40,19 +62,41 @@ void put_process_in_background (process *p, int cont) {
  *
  */
 void print_process_list(void) {
-    process* curr = first_process;
-    while(curr) {
-        if(!curr->completed) {
+    process* current = first_process;
+    while(current) {
+        if(!current->completed) {
             printf("\n");
-            printf("PID: %d\n",curr->pid);
-            printf("Name: %s\n",curr->argv[0]);
-            printf("Status: %d\n",curr->status);
-            printf("Completed: %s\n",(curr->completed)?"true":"false");
-            printf("Stopped: %s\n",(curr->stopped)?"true":"false");
-            printf("Background: %s\n",(curr->background)?"true":"false");
-            printf("Prev: %lx\n",(unsigned long)curr->prev);
-            printf("Next: %lx\n",(unsigned long)curr->next);
+            printf("PID: %d\n",current->pid);
+            printf("Name: %s\n",current->argv[0]);
+            printf("Status: %d\n",current->status);
+            printf("Completed: %s\n",(current->completed)?"true":"false");
+            printf("Stopped: %s\n",(current->stopped)?"true":"false");
+            printf("Background: %s\n",(current->background)?"true":"false");
+            printf("Prev: %lx\n",(unsigned long)current->prev);
+            printf("Next: %lx\n",(unsigned long)current->next);
         }
-        curr=curr->next;
+        current=current->next;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

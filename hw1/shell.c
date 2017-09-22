@@ -10,18 +10,30 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <stdbool.h>
-
-#define INPUT_STRING_SIZE 80
-#define CNORMAL "\x1B[0m"
-#define CYELLOW "\x1B[33m"
-
+#include <errno.h>
+#include <pwd.h> 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <wordexp.h>
 #include "io.h"
 #include "parse.h"
 #include "process.h"
 #include "shell.h"
+#define INPUT_STRING_SIZE 80
+#define CNORMAL "\x1B[0m"
+#define CYELLOW "\x1B[33m"
+#define BUFFSIZE 100
+
+
+
+process* process_one = NULL;
 
 int cmd_help(tok_t arg[]);
 int cmd_quit(tok_t arg[]);
+int cmd_pwd(tok_t arg[]);
+int cmd_cd (tok_t arg[]);
+  
+char prevDir[1024];
 
 /** 
  *  Built-In Command Lookup Table Structures 
@@ -36,7 +48,10 @@ typedef struct fun_desc {
 fun_desc_t cmd_table[] = {
     {cmd_help, "help", "show this help menu"},
     {cmd_quit, "quit", "quit the command shell"},
-};
+    {cmd_pwd , "pwd" , "prints working directory"},
+    {cmd_cd ,  "cd"  , "changes directory"},
+};   
+
 
 /**
  *  Determine whether cmd is a built-in shell command
@@ -72,6 +87,46 @@ int cmd_quit(tok_t arg[]) {
     return 1;
 }
 
+int cmd_pwd(tok_t arg[]){
+    char kw[3000];
+    getcwd(kw, sizeof(kw));
+    printf("%s\n" ,kw);
+}
+
+int cmd_cd(tok_t arg[]){
+  char *direct = NULL;
+  char *workingdirect[1024];
+  getcwd(workingdirect, 1024);
+  
+  if( arg[0] == NULL)
+      direct = getenv( "HOME" );
+  else if(strchr(arg[0],'-')){
+     direct = prevDir; 
+
+ }
+  else {
+      wordexp_t v;
+      bool expanded = false;
+      for(int i = 0; i < MAXTOKS && arg[i] != NULL; i++) {
+         if(strchr(arg[i],'~')) {  
+            if(wordexp(arg[i], &v, 0) == 0){
+               expanded = true;
+                 strcpy(arg[i],v.we_wordv[0]);
+     }
+    }
+  }
+   if(expanded) wordfree(&v);
+    direct = arg[0]; 
+  }
+ 
+   chdir(direct);
+   strncpy(prevDir,workingdirect,1024);
+   
+  return 1;
+}
+ 
+
+
 /**
  *  Initialise the shell
  *
@@ -101,66 +156,95 @@ void init_shell() {
         tcgetattr(shell_terminal, &shell_tmodes);
     }
 
-    /** TODO */
-    // ignore signals
+      signal(SIGINT,SIG_IGN);
+      signal(SIGTSTP, SIG_IGN);
+      signal(SIGTTIN,SIG_IGN);
+      signal(SIGTTOU, SIG_IGN);
 }
 
 /**
  * Add a process to our process list
  *
  */
-void add_process(process* p)
+void add_process(process* pro)
 {
-    /** TODO **/
+   if(process_one == NULL){
+   process_one = pro;
+   pro->next = pro;
+   pro->prev = pro;
+  }
+  else{
+   process_one->prev->next = pro;
+   pro->prev = process_one;
+   process_one->prev =pro;
+   pro->next = process_one;
+ }
 }
 
 /**
  * Creates a process given the tokens parsed from stdin
  *
  */
-process* create_process(tok_t* tokens)
-{
-    /** TODO **/
-    return NULL;
-}
+process* create_process(tok_t* tokens){
+   struct process *pro = malloc(sizeof(struct process));
+   pro->argv = tokens;
+   int t = 1; 
+   for (int i = 0; tokens[i]!= NULL; i++){
+   t++;
+  }
 
+   pro->argc = t;
+   launch_process(pro);
+   return NULL;
 
-/**
- * Main shell loop
- *
- */
+  }
 int shell (int argc, char *argv[]) {
-    int lineNum = 0;
+    int lineNo = 0;
     pid_t pid = getpid();	// get current process's PID
     pid_t ppid = getppid();	// get parent's PID
     pid_t cpid;             // use this to store a child PID
 
-    char *s = malloc(INPUT_STRING_SIZE+1); // user input string
+    char *userString = malloc(INPUT_STRING_SIZE+1); // user input string
     tok_t *t;			                   // tokens parsed from input
     // if you look in parse.h, you'll see that tokens are just C-style strings (char*)
 
-    // perform some initialisation
+    // perform some initialisationwould type "/usr/bin/wc".
+
+    char *present = malloc(INPUT_STRING_SIZE+1);
+    size_t size = INPUT_STRING_SIZE+1;
+    
+
     init_shell();
+    char *current = NULL;
+    current = getcwd(current,100);  
 
     fprintf(stdout, "%s running as PID %d under %d\n",argv[0],pid,ppid);
     /** TODO: replace "TODO" with the current working directory */
-    fprintf(stdout, CYELLOW "\n%d %s# " CNORMAL, lineNum, "TODO");
+    fprintf(stdout, CYELLOW "\n%d %s# " CNORMAL, lineNo, current);
     
     // Read input from user, tokenize it, and perform commands
-    while ( ( s = freadln(stdin) ) ) { 
+    while ( ( userString = freadln(stdin) ) ) { 
     
-        t = getToks(s);            // break the line into tokens
+        t = getToks(userString);            // break the line into tokens
         int fundex = lookup(t[0]); // is first token a built-in command?
         if( fundex >= 0 ) {
             cmd_table[fundex].fun(&t[1]); // execute built-in command
         } else {
-            /** TODO: replace this statement to call a function that runs executables */
-            fprintf(stdout, "This shell only supports built-in functions. Replace this to run programs as commands.\n");
+              cpid = fork();
+		if(cpid==0){
+			process *proce;
+			proce = create_process(t);
+			proce->pid = cpid;
+			add_process(proce);
+			launch_process(proce);
+		}
+		waitpid(cpid,NULL,0);
         }
 
-        lineNum++;
+       present = getcwd(present,size);
+       lineNo++;
         /** TODO: replace "TODO" with the current working directory */
-        fprintf(stdout, CYELLOW "\n%d %s# " CNORMAL, lineNum, "TODO");
+        fprintf(stdout, CYELLOW "\n%d %s# " CNORMAL, lineNo, present);
     }
     return 0;
 }

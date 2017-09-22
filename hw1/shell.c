@@ -106,16 +106,16 @@ int cmd_cd(tok_t arg[]){
  }
   else {
       wordexp_t v;
-      bool expanded = false;
+      bool ex = false;
       for(int i = 0; i < MAXTOKS && arg[i] != NULL; i++) {
          if(strchr(arg[i],'~')) {  
             if(wordexp(arg[i], &v, 0) == 0){
-               expanded = true;
+               ex = true;
                  strcpy(arg[i],v.we_wordv[0]);
      }
     }
   }
-   if(expanded) wordfree(&v);
+   if(ex) wordfree(&v);
     direct = arg[0]; 
   }
  
